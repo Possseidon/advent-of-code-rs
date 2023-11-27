@@ -149,7 +149,7 @@ impl Puzzle {
         print!("Grabbing input... ");
         stdout().flush()?;
         let input = self.get_input(session)?;
-        println!(" got {} bytes.", input.len());
+        println!("got {} bytes.", input.len());
         println!();
         Ok(input)
     }
