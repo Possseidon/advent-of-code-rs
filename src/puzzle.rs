@@ -7,7 +7,6 @@ use std::{
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Datelike, Utc};
 use chrono_tz::{Tz, EST};
-use humantime::format_duration;
 use num_traits::ToPrimitive;
 use reqwest::blocking::Client;
 use scraper::{Html, Selector};
@@ -217,18 +216,54 @@ impl Puzzle {
         let solve = self.get_solution().context("puzzle not implemented")?;
         let input = self.get_input_verbose(session)?;
 
+        // Using Vec and then sort to minimize overhead compared to e.g. BTreeSet.
+        // Pre-allocating some capacity doesn't make much difference and picking a good initial
+        // capacity isn't really possible without running the benchmark upfront.
+        let mut times = vec![];
         let start = Instant::now();
-        let mut iterations = 0;
-        while start.elapsed() < bench_duration {
+        loop {
+            let iteration_start = Instant::now();
             black_box(solve(black_box(&input))?);
-            iterations += 1;
+            times.push(iteration_start.elapsed());
+
+            if start.elapsed() >= bench_duration {
+                break;
+            }
         }
+        let elapsed_with_overhead = start.elapsed();
+        let elapsed = times.iter().sum::<Duration>();
+        let overhead = elapsed_with_overhead - elapsed;
 
-        let elapsed = start.elapsed();
+        times.sort_unstable();
 
-        println!("Benchmark ran for {}", format_duration(bench_duration));
-        println!("  {} Iterations", iterations.separate_with_commas());
-        println!("  {}/Iteration", format_duration(elapsed / iterations));
+        let iterations = times.len();
+        let average = elapsed.div_f32(iterations as f32);
+        let median = times[iterations / 2];
+        let std_dev = if iterations > 1 {
+            Duration::from_secs_f32(
+                times
+                    .iter()
+                    .map(|time| (time.as_secs_f32() - average.as_secs_f32()).powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+                    / (iterations as f32 - 1.0),
+            )
+        } else {
+            Duration::ZERO
+        };
+
+        println!(
+            "Benchmark ran for {:.2?} (with {:.2?} of overhead)",
+            elapsed_with_overhead, overhead,
+        );
+        println!("  Iterations: {}", iterations.separate_with_commas());
+        println!("  Avg±StdDev: {:.2?} ± {:.2?}", average, std_dev,);
+        println!(
+            " Min<Med<Max: {:.2?} < {:.2?} < {:.2?}",
+            *times.first().unwrap(),
+            median,
+            *times.last().unwrap(),
+        );
         println!();
 
         Ok(())
