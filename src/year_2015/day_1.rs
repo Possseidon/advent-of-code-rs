@@ -4,8 +4,15 @@ use crate::puzzle::{AdventOfCode, Day, Example, Part};
 
 impl Part<1> for (AdventOfCode<2015>, Day<1>) {
     fn solve(input: &str) -> Result<String> {
-        let count = |paren| input.bytes().filter(|&char| char == paren).count() as i32;
-        Ok((count(b'(') - count(b')')).to_string())
+        Ok(input
+            .bytes()
+            .map(|char| match char {
+                b'(' => Ok(1),
+                b')' => Ok(-1),
+                _ => bail!("invalid character"),
+            })
+            .sum::<Result<i32, _>>()?
+            .to_string())
     }
 
     const EXAMPLES: &'static [Example] = &[
