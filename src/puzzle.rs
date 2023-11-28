@@ -1,6 +1,7 @@
 use std::{
     hint::black_box,
     io::{stdout, Write},
+    iter::once,
     time::{Duration, Instant},
 };
 
@@ -34,15 +35,35 @@ pub(crate) enum PuzzlePart {
 }
 
 pub(crate) trait Part<const N: u8> {
-    fn solve(input: &str) -> Result<String>;
-
+    const SOLUTIONS: &'static [Solution] = &[];
     const EXAMPLES: &'static [Example] = &[];
 }
 
-type Solve = fn(&str) -> Result<String>;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Solution(pub(crate) &'static str, pub(crate) SolutionFn);
+
+pub(crate) type SolutionFn = fn(input: &str) -> PuzzleResult;
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PuzzleResult {
+    Int(i32),
+    Str(String),
+}
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Example(pub(crate) usize, pub(crate) usize);
+
+struct BenchmarkResult {
+    runtime: Duration,
+    overhead: Duration,
+    iterations: usize,
+    average: Duration,
+    std_dev: Duration,
+    min: Duration,
+    median: Duration,
+    max: Duration,
+}
 
 impl Puzzle {
     pub(crate) fn from_args(args: &Args) -> Result<Self> {
@@ -154,20 +175,21 @@ impl Puzzle {
         Ok(input)
     }
 
-    pub(crate) fn solve(&self, session: &str) -> Result<()> {
-        let solve = self.get_solution().context("puzzle not implemented")?;
+    pub(crate) fn solve(&self, solution: Option<&str>, session: &str) -> Result<()> {
+        let Solution(_, solve) = self.get_solution(solution)?;
         let input = self.get_input_verbose(session)?;
-        let result = solve(&input)?;
+        let result = solve(&input);
         println!("{}", result);
         Ok(())
     }
 
     pub(crate) fn run_examples(
         &self,
+        solution: Option<&str>,
         session: &str,
         examples: impl Iterator<Item = Example>,
     ) -> Result<()> {
-        let solve = self.get_solution().context("puzzle not implemented")?;
+        let Solution(_, solve) = self.get_solution(solution)?;
 
         print!("Scraping Example Inputs... ");
         stdout().flush()?;
@@ -188,19 +210,12 @@ impl Puzzle {
                 .get(expected_result_offset)
                 .context("expected result offset out of bounds")?;
             let result = solve(input);
-            match result {
-                Ok(result) if &result == expected_result => {
-                    println!("| Example #{total} passed");
-                    success += 1;
-                }
-                Ok(result) => {
-                    println!("| Example #{total} failed: {expected_result} != {result}");
-                    println!("|- Input: {input}");
-                }
-                Err(error) => {
-                    println!("| Example #{total} failed: {error}");
-                    println!("|- Input: {input}");
-                }
+            if &format!("{}", result) == expected_result {
+                println!("| Example #{total} passed");
+                success += 1;
+            } else {
+                println!("| Example #{total} failed: {expected_result} != {result}");
+                println!("|- Input: {input}");
             }
         }
         if total > 0 {
@@ -212,10 +227,117 @@ impl Puzzle {
         Ok(())
     }
 
-    pub(crate) fn benchmark(&self, session: &str, bench_duration: Duration) -> Result<()> {
-        let solve = self.get_solution().context("puzzle not implemented")?;
+    pub(crate) fn print_benchmark(
+        &self,
+        solution: Option<&str>,
+        session: &str,
+        bench_duration: Duration,
+    ) -> Result<()> {
+        let Solution(_, solve) = self.get_solution(solution)?;
         let input = self.get_input_verbose(session)?;
 
+        let BenchmarkResult {
+            runtime,
+            overhead,
+            iterations,
+            average,
+            std_dev,
+            min,
+            median,
+            max,
+        } = self.benchmark(solve, &input, bench_duration);
+
+        println!(
+            "Benchmark ran for {:.2?} (plus {:.2?} of overhead)",
+            runtime, overhead,
+        );
+        println!("  Iterations: {}", iterations.separate_with_commas());
+        println!("  Avg±StdDev: {:.2?} ± {:.2?}", average, std_dev);
+        println!(" Min<Med<Max: {:.2?} < {:.2?} < {:.2?}", min, median, max);
+        println!();
+
+        Ok(())
+    }
+
+    pub(crate) fn print_benchmark_comparison(
+        &self,
+        session: &str,
+        bench_duration: Duration,
+    ) -> Result<()> {
+        let input = self.get_input_verbose(session)?;
+
+        let solutions = self.get_solutions();
+        if solutions.is_empty() {
+            bail!("puzzle has no solutions");
+        }
+
+        const SOLUTION: &str = "Solution";
+        let name_width = solutions
+            .iter()
+            .map(|Solution(name, _)| name.len())
+            .chain(once(SOLUTION.len()))
+            .max()
+            .unwrap();
+
+        let mut benchmark_results = solutions
+            .iter()
+            .copied()
+            .enumerate()
+            .inspect(|(i, Solution(name, _))| {
+                print!(
+                    "\r\x1b[KBenchmarking {}/{} - {name}",
+                    i + 1,
+                    solutions.len(),
+                );
+                stdout().flush().unwrap();
+            })
+            .map(|(_, Solution(name, solve))| {
+                (
+                    name,
+                    solve(&input),
+                    self.benchmark(solve, &input, bench_duration),
+                )
+            })
+            .collect::<Vec<_>>();
+        print!("\r\x1b[2K");
+
+        let first_puzzle_result = benchmark_results.first().unwrap().1.clone();
+
+        benchmark_results.sort_by_key(|(_, _, result)| result.average);
+
+        let fastest_time = benchmark_results[0].2.average;
+
+        println!("| {SOLUTION:name_width$} |   Averge ±   StdDev | Relative |",);
+        println!("|-{:-<name_width$}-+---------------------+----------|", "");
+
+        for (name, puzzle_result, result) in &benchmark_results {
+            let wrong = puzzle_result != &first_puzzle_result;
+            let BenchmarkResult {
+                average, std_dev, ..
+            } = result;
+            let relative = average.as_secs_f32() / fastest_time.as_secs_f32() - 1.0;
+            if wrong {
+                print!("\x1b[90m");
+            }
+            print!(
+                "| {name:name_width$} | {average:>8.2?} ± {std_dev:>8.2?} | {:>7.1}% |",
+                relative * 100.0
+            );
+            if wrong {
+                print!(" \x1b[33m{puzzle_result} != {first_puzzle_result}\x1b[0m");
+            }
+            println!();
+        }
+
+        Ok(())
+    }
+
+    fn benchmark(
+        &self,
+        solve: SolutionFn,
+        input: &str,
+        bench_duration: Duration,
+    ) -> BenchmarkResult {
         // Using Vec and then sort to minimize overhead compared to e.g. BTreeSet.
         // Pre-allocating some capacity doesn't make much difference and picking a good initial
         // capacity isn't really possible without running the benchmark upfront.
@@ -223,7 +345,7 @@ impl Puzzle {
         let start = Instant::now();
         loop {
             let iteration_start = Instant::now();
-            black_box(solve(black_box(&input))?);
+            black_box(solve(black_box(input)));
             times.push(iteration_start.elapsed());
 
             if start.elapsed() >= bench_duration {
@@ -231,14 +353,13 @@ impl Puzzle {
             }
         }
         let elapsed_with_overhead = start.elapsed();
-        let elapsed = times.iter().sum::<Duration>();
-        let overhead = elapsed_with_overhead - elapsed;
+        let runtime = times.iter().sum::<Duration>();
+        let overhead = elapsed_with_overhead - runtime;
 
         times.sort_unstable();
 
         let iterations = times.len();
-        let average = elapsed.div_f32(iterations as f32);
-        let median = times[iterations / 2];
+        let average = runtime.div_f32(iterations as f32);
         let std_dev = if iterations > 1 {
             Duration::from_secs_f32(
                 times
@@ -252,21 +373,38 @@ impl Puzzle {
             Duration::ZERO
         };
 
-        println!(
-            "Benchmark ran for {:.2?} (with {:.2?} of overhead)",
-            elapsed_with_overhead, overhead,
-        );
-        println!("  Iterations: {}", iterations.separate_with_commas());
-        println!("  Avg±StdDev: {:.2?} ± {:.2?}", average, std_dev,);
-        println!(
-            " Min<Med<Max: {:.2?} < {:.2?} < {:.2?}",
-            *times.first().unwrap(),
-            median,
-            *times.last().unwrap(),
-        );
-        println!();
+        BenchmarkResult {
+            runtime,
+            overhead,
+            iterations,
+            average,
+            std_dev,
+            min: *times.first().unwrap(),
+            median: times[iterations / 2],
+            max: *times.last().unwrap(),
+        }
+    }
 
-        Ok(())
+    fn get_solution(&self, solution: Option<&str>) -> Result<Solution> {
+        let solutions = self.get_solutions();
+        if let Some(solution) = solution {
+            solutions
+                .iter()
+                .find(|Solution(name, _)| *name == solution)
+                .copied()
+                .context("solution not found")
+        } else {
+            solutions.first().copied().context("puzzle not implemented")
+        }
+    }
+}
+
+impl std::fmt::Display for PuzzleResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PuzzleResult::Int(result) => write!(f, "{result}"),
+            PuzzleResult::Str(result) => write!(f, "{result}"),
+        }
     }
 }
 
@@ -277,29 +415,29 @@ fn advent_of_code_now() -> DateTime<Tz> {
 macro_rules! puzzles {
     ( $( $year:literal => [ $( $day:literal )* ] )* ) => {
         impl Puzzle {
-            pub(crate) fn get_solution(self) -> Option<Solve> {
+            pub(crate) fn get_solutions(self) -> &'static [Solution]{
                 match u32::from(self.year) {
                     $( $year => match u8::from(self.day) {
                         $( $day => match self.part {
-                            PuzzlePart::Part1 => Some(<(AdventOfCode<$year>, Day<$day>) as Part<1>>::solve),
-                            PuzzlePart::Part2 => Some(<(AdventOfCode<$year>, Day<$day>) as Part<2>>::solve),
+                            PuzzlePart::Part1 => <(AdventOfCode<$year>, Day<$day>) as Part<1>>::SOLUTIONS,
+                            PuzzlePart::Part2 => <(AdventOfCode<$year>, Day<$day>) as Part<2>>::SOLUTIONS,
                         })*
-                        _ => None,
+                        _ => &[],
                     } )*
-                    _ => None,
+                    _ => &[],
                 }
             }
 
-            pub(crate) fn get_examples(self) -> Option<&'static [Example]> {
+            pub(crate) fn get_examples(self) -> &'static [Example] {
                 match u32::from(self.year) {
                     $( $year => match u8::from(self.day) {
                         $( $day => match self.part {
-                            PuzzlePart::Part1 => Some(<(AdventOfCode<$year>, Day<$day>) as Part<1>>::EXAMPLES),
-                            PuzzlePart::Part2 => Some(<(AdventOfCode<$year>, Day<$day>) as Part<2>>::EXAMPLES),
+                            PuzzlePart::Part1 => <(AdventOfCode<$year>, Day<$day>) as Part<1>>::EXAMPLES,
+                            PuzzlePart::Part2 => <(AdventOfCode<$year>, Day<$day>) as Part<2>>::EXAMPLES,
                         })*
-                        _ => None,
+                        _ => &[],
                     } )*
-                    _ => None,
+                    _ => &[],
                 }
             }
         }

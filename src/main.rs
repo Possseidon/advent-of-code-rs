@@ -29,36 +29,72 @@ fn main() -> Result<()> {
         if args.bench.is_some() {
             bail!("template generation incompatible with benchmarking");
         }
+        if args.compare {
+            bail!("compare can only be used with benchmarking");
+        }
         if args.part2 {
             bail!("template generation always generates both parts");
+        }
+        if args.solution.is_some() {
+            bail!("template generation does not support generating named solutions");
         }
 
         generate_template(puzzle.year, puzzle.day)?;
     } else if let Some(bench_duration) = args.bench {
         if args.example.is_some() {
-            bail!("benchmark cannot be run with an example");
+            bail!("benchmark cannot be run on examples");
         }
 
-        puzzle.benchmark(
-            &get_session()?,
-            Duration::from_secs_f32(bench_duration.unwrap_or(1.0)),
-        )?;
+        #[cfg(debug_assertions)]
+        {
+            println!("\x1b[33mWARNING: Running benchmark with a debug build\x1b[0m");
+            println!();
+        }
+
+        let session = &get_session()?;
+        let bench_duration = Duration::from_secs_f32(bench_duration.unwrap_or(1.0));
+
+        if args.compare {
+            if args.solution.is_some() {
+                bail!("compare always runs all solutions");
+            }
+
+            puzzle.print_benchmark_comparison(session, bench_duration)?;
+        } else {
+            puzzle.print_benchmark(args.solution.as_deref(), session, bench_duration)?;
+        }
     } else if let Some(example) = args.example {
-        let examples = puzzle.get_examples().context("puzzle not implemented")?;
+        if args.compare {
+            bail!("compare can only be used with benchmarking");
+        }
+
+        let examples = puzzle.get_examples();
+        if examples.is_empty() {
+            bail!("puzzle has no examples");
+        }
         if let Some(example) = example {
             puzzle.run_examples(
+                args.solution.as_deref(),
                 &get_session()?,
                 once(
-                    *examples
-                        .get(example)
-                        .with_context(|| format!("puzzle only has {} examples", examples.len()))?,
+                    *examples.get(example).with_context(|| {
+                        format!("puzzle only has {} example(s)", examples.len())
+                    })?,
                 ),
             )?;
         } else {
-            puzzle.run_examples(&get_session()?, examples.iter().copied())?;
+            puzzle.run_examples(
+                args.solution.as_deref(),
+                &get_session()?,
+                examples.iter().copied(),
+            )?;
         };
     } else {
-        puzzle.solve(&get_session()?)?;
+        if args.compare {
+            bail!("compare can only be used with benchmarking");
+        }
+
+        puzzle.solve(args.solution.as_deref(), &get_session()?)?;
     }
 
     Ok(())
