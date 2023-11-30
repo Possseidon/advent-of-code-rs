@@ -61,7 +61,7 @@ struct BenchmarkResult {
     average: Duration,
     std_dev: Duration,
     min: Duration,
-    median: Duration,
+    med: Duration,
     max: Duration,
 }
 
@@ -243,17 +243,14 @@ impl Puzzle {
             average,
             std_dev,
             min,
-            median,
+            med,
             max,
         } = self.benchmark(solve, &input, bench_duration);
 
-        println!(
-            "Benchmark ran for {:.2?} (plus {:.2?} of overhead)",
-            runtime, overhead,
-        );
+        println!("Benchmark ran for {runtime:.2?} (plus {overhead:.2?} of overhead)");
         println!("  Iterations: {}", iterations.separate_with_commas());
-        println!("  Avg±StdDev: {:.2?} ± {:.2?}", average, std_dev);
-        println!(" Min<Med<Max: {:.2?} < {:.2?} < {:.2?}", min, median, max);
+        println!("  Avg±StdDev: {average:.2?} ± {std_dev:.2?}");
+        println!(" Min<Med<Max: {min:.2?} < {med:.2?} < {max:.2?}");
         println!();
 
         Ok(())
@@ -307,27 +304,37 @@ impl Puzzle {
 
         let fastest_time = benchmark_results[0].2.average;
 
-        println!("| {SOLUTION:name_width$} |   Averge ±   StdDev | Relative |",);
-        println!("|-{:-<name_width$}-+---------------------+----------|", "");
+        const WS: &str = "";
 
-        for (name, puzzle_result, result) in &benchmark_results {
+        println!("  {WS: <name_width$} ┏━━ Averge ±   StdDev ┯ Relative ┳━ Mininum ┯━━ Median ┯━ Maximum ┓");
+        println!("┏━{WS:━<name_width$}━╋━━━━━━━━━━━━━━━━━━━━━┿━━━━━━━━━━╋━━━━━━━━━━┿━━━━━━━━━━┿━━━━━━━━━━┫");
+
+        for (
+            name,
+            puzzle_result,
+            BenchmarkResult {
+                average,
+                std_dev,
+                min,
+                med,
+                max,
+                ..
+            },
+        ) in &benchmark_results
+        {
             let wrong = puzzle_result != &first_puzzle_result;
-            let BenchmarkResult {
-                average, std_dev, ..
-            } = result;
-            let relative = average.as_secs_f32() / fastest_time.as_secs_f32() - 1.0;
+            let rel = (average.as_secs_f32() / fastest_time.as_secs_f32() - 1.0) * 100.0;
             if wrong {
                 print!("\x1b[90m");
             }
-            print!(
-                "| {name:name_width$} | {average:>8.2?} ± {std_dev:>8.2?} | {:>7.1}% |",
-                relative * 100.0
-            );
+            print!("┃ {name:<name_width$} ┃ {average:>8.2?} ± {std_dev:>8.2?} │ {rel:>7.1}% ┃ {min:>8.2?} │ {med:>8.2?} │ {max:>8.2?} ┃");
             if wrong {
                 print!(" \x1b[33m{puzzle_result} != {first_puzzle_result}\x1b[0m");
             }
             println!();
         }
+
+        println!("┗━{WS:━<name_width$}━┻━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━┻━━━━━━━━━━┷━━━━━━━━━━┷━━━━━━━━━━┛");
 
         Ok(())
     }
@@ -380,7 +387,11 @@ impl Puzzle {
             average,
             std_dev,
             min: *times.first().unwrap(),
-            median: times[iterations / 2],
+            med: if iterations % 2 == 0 {
+                (times[iterations / 2 - 1] + times[iterations / 2]) / 2
+            } else {
+                times[iterations / 2]
+            },
             max: *times.last().unwrap(),
         }
     }
