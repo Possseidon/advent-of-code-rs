@@ -30,18 +30,6 @@ impl Part<1> for (AdventOfCode<2015>, Day<1>) {
             let count = |paren| input.bytes().filter(|&char| char == paren).count() as i32;
             PuzzleResult::Int(count(b'(') - count(b')'))
         }),
-        Solution("len-minus-unsafe", |input| {
-            let total = input.len() as i32;
-            let closing = input
-                .bytes()
-                .filter(|&char| match char {
-                    b')' => true,
-                    b'(' => false,
-                    _ => unsafe { unreachable_unchecked() },
-                })
-                .count() as i32;
-            PuzzleResult::Int(total - closing * 2)
-        }),
         Solution("len-minus", |input| {
             let closing = input.bytes().filter(|&char| matches!(char, b')')).count();
             PuzzleResult::Int(input.len() as i32 - closing as i32 * 2)
