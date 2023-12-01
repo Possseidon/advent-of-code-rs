@@ -145,12 +145,16 @@ impl Puzzle {
     }
 
     fn get_code_blocks(&self, session: &str) -> Result<Vec<String>> {
-        Ok(
-            Html::parse_document(&self.get_with_session(session, &self.puzzle_url())?)
-                .select(&Selector::parse("code").unwrap())
-                .map(|element| element.inner_html())
-                .collect(),
-        )
+        Html::parse_document(&self.get_with_session(session, &self.puzzle_url())?)
+            .select(&Selector::parse("code").unwrap())
+            .map(|element| {
+                Ok(element
+                    .text()
+                    .next()
+                    .context("malformed example")?
+                    .to_string())
+            })
+            .collect()
     }
 
     pub(crate) fn print_header(&self) {
