@@ -1,4 +1,5 @@
 mod year_2015;
+mod year_2023;
 
 mod cmd;
 mod puzzle;
