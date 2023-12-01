@@ -31,14 +31,18 @@ fn create_template_file(year: PuzzleYear, day: PuzzleDay) -> Result<()> {
 
     write!(
         file,
-        r#"use crate::puzzle::{{AdventOfCode, Day, Part, Solution}};
+        r#"use crate::puzzle::{{AdventOfCode, Day, Example, Part, Solution}};
 
 impl Part<1> for (AdventOfCode<{year}>, Day<{day}>) {{
-    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |input| todo!())];
+    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |_input| todo!())];
+
+    const EXAMPLES: &'static [Example] = &[];
 }}
 
 impl Part<2> for (AdventOfCode<{year}>, Day<{day}>) {{
-    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |input| todo!())];
+    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |_input| todo!())];
+
+    const EXAMPLES: &'static [Example] = &[];
 }}
 "#
     )?;
