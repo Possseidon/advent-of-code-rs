@@ -461,5 +461,5 @@ macro_rules! puzzles {
 
 puzzles! {
     2015 => [ 1 ]
-    2023 => [ 1 ]
+    2023 => [ 1 2 ]
 }
