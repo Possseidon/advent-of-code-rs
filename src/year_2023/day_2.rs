@@ -30,7 +30,32 @@ impl Part<1> for (AdventOfCode<2023>, Day<2>) {
 }
 
 impl Part<2> for (AdventOfCode<2023>, Day<2>) {
-    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |_input| todo!())];
+    const SOLUTIONS: &'static [Solution] = &[Solution("solution", |input| {
+        PuzzleResult::Int(
+            input
+                .lines()
+                .map(|line| {
+                    let mut red = 0;
+                    let mut green = 0;
+                    let mut blue = 0;
+                    let (_, cubes) = line.split_once(':').unwrap();
+                    for cubes in cubes.trim_start().split(';') {
+                        for cubes in cubes.split(',') {
+                            let (amount, color) = cubes.trim_start().split_once(' ').unwrap();
+                            let amount = amount.parse::<i32>().unwrap();
+                            match color {
+                                "red" => red = red.max(amount),
+                                "green" => green = green.max(amount),
+                                "blue" => blue = blue.max(amount),
+                                _ => panic!(),
+                            }
+                        }
+                    }
+                    red * green * blue
+                })
+                .sum::<i32>(),
+        )
+    })];
 
-    const EXAMPLES: &'static [Example] = &[];
+    const EXAMPLES: &'static [Example] = &[Example(6, 12)];
 }
